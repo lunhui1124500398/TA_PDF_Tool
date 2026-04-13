@@ -196,4 +196,4 @@ D:\Zhujiao\ta_pdf_tool\data
 4. 复用批语
 5. 导出结果
 
-`ocr_extract.py`、`segment_questions.py`、`doubao_grader.py` 是之前 OCR / AI 原型链路留下来的脚本，不是当前这版开始使用所必需的部分。
+`legacy/ocr_extract.py`、`legacy/segment_questions.py`、`legacy/doubao_grader.py` 是之前 OCR / AI 原型链路留下来的脚本，不是当前这版开始使用所必需的部分。

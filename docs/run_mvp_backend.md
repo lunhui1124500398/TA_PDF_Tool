@@ -13,7 +13,7 @@
 5. 导出带批注的 PDF。
 6. 提供前端页面和 API。
 
-当前这条线不依赖 OCR。`ocr_extract.py`、`segment_questions.py`、`doubao_grader.py` 属于之前 AI / OCR 原型，不是这版 MVP 的必需依赖。
+当前这条线不依赖 OCR。`legacy/ocr_extract.py`、`legacy/segment_questions.py`、`legacy/doubao_grader.py` 属于之前 AI / OCR 原型，不是这版 MVP 的必需依赖。
 
 ## 推荐环境
 

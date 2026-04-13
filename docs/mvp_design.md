@@ -385,7 +385,7 @@ MVP 先做成本地 Web 工具：
 
 ## 12. 复用现有原型的部分
 
-当前仓库中的 [grade_tool.py](../grade_tool.py) 可以直接复用这些能力：
+当前仓库中的 [grade_tool.py](../legacy/grade_tool.py) 可以直接复用这些能力：
 
 1. 文件名解析 `学号-姓名`
 2. PDF 枚举和批量处理

@@ -128,9 +128,9 @@ conda activate d:\Zhujiao\ta_pdf_tool\.conda
 ta_pdf_tool/
   .conda/
   docs/
+  legacy/
   environment.mvp.yml
   requirements-mvp-backend.txt
-  grade_tool.py
   ...
 ```
 
