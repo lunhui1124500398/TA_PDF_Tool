@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TA PDF Tool MVP</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <header class="topbar">
+        <div class="brand">
+          <h1>TA PDF Tool</h1>
+          <p>半自动批改 MVP</p>
+        </div>
+        <form id="session-form" class="session-form">
+          <label>
+            作业目录
+            <div class="input-with-action">
+              <input id="root-dir-input" type="text" value="D:\Zhujiao\HW-4&5" />
+              <button id="pick-root-dir-btn" type="button">选择文件夹</button>
+            </div>
+          </label>
+          <label>
+            会话名
+            <input id="session-name-input" type="text" value="hw45-mvp" />
+          </label>
+          <button type="submit">创建 / 重建会话</button>
+        </form>
+      </header>
+
+      <section class="status-strip">
+        <div class="status-card">
+          <span class="status-label">当前学生</span>
+          <strong id="status-student">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">当前页</span>
+          <strong id="status-page">-</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">已完成</span>
+          <strong id="status-done">0</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">未完成</span>
+          <strong id="status-pending">0</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">当前工具</span>
+          <strong id="status-tool">✓</strong>
+        </div>
+        <div class="status-card">
+          <span class="status-label">提示</span>
+          <strong id="status-message">先创建会话，然后开始批改。</strong>
+        </div>
+      </section>
+
+      <main class="workspace">
+        <aside class="queue-panel">
+          <div class="panel-header">
+            <h2>队列</h2>
+            <div class="queue-actions">
+              <button id="prev-student-btn" type="button">上一份</button>
+              <button id="next-student-btn" type="button">下一份</button>
+            </div>
+          </div>
+          <div id="queue-summary" class="queue-summary">未加载会话</div>
+          <div id="student-list" class="student-list"></div>
+        </aside>
+
+        <section class="viewer-panel">
+          <div class="viewer-toolbar">
+            <div class="toolbar-group">
+              <button id="prev-page-btn" type="button">上一页</button>
+              <button id="next-page-btn" type="button">下一页</button>
+              <button id="zoom-out-btn" type="button">缩小</button>
+              <button id="zoom-in-btn" type="button">放大</button>
+            </div>
+            <div class="toolbar-group">
+              <button id="mark-in-progress-btn" type="button">进行中</button>
+              <button id="mark-done-btn" type="button">完成</button>
+              <button id="export-current-btn" type="button">导出当前</button>
+              <button id="export-all-btn" type="button">导出全部</button>
+            </div>
+          </div>
+
+          <div class="pdf-stage">
+            <div id="pdf-wrapper" class="pdf-wrapper">
+              <canvas id="pdf-canvas"></canvas>
+              <div id="annotation-layer" class="annotation-layer"></div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="tools-panel">
+          <section class="panel-block">
+            <h2>工具</h2>
+            <div class="tool-grid">
+              <button class="tool-btn active" data-tool="check" type="button">✓</button>
+              <button class="tool-btn" data-tool="half" type="button">△</button>
+              <button class="tool-btn" data-tool="cross" type="button">✗</button>
+              <button class="tool-btn" data-tool="text" type="button">文本</button>
+              <button class="tool-btn" data-tool="score" type="button">分数</button>
+            </div>
+            <p class="hint">符号工具点一下就放。文本和分数工具会在落点时填写内容。</p>
+          </section>
+
+          <section class="panel-block">
+            <h2>新批注样式</h2>
+            <div class="field-grid">
+              <label>
+                颜色
+                <input id="draft-color-input" type="color" value="#d11a2a" />
+              </label>
+              <label>
+                字号
+                <input id="draft-size-input" type="number" min="8" max="96" value="14" />
+              </label>
+              <label>
+                粗细
+                <select id="draft-weight-input">
+                  <option value="normal">正常</option>
+                  <option value="bold">加粗</option>
+                </select>
+              </label>
+              <label>
+                文字草稿
+                <textarea id="draft-text-input" rows="3" placeholder="文本/分数工具可先填默认内容"></textarea>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel-block">
+            <h2>选中批注</h2>
+            <div id="selected-empty" class="hint">点击页面中的批注后，可修改内容、大小、颜色和位置。</div>
+            <div id="selected-editor" class="field-grid hidden">
+              <label>
+                内容
+                <textarea id="selected-text-input" rows="4"></textarea>
+              </label>
+              <label>
+                颜色
+                <input id="selected-color-input" type="color" />
+              </label>
+              <label>
+                字号
+                <input id="selected-size-input" type="number" min="8" max="96" />
+              </label>
+              <label>
+                粗细
+                <select id="selected-weight-input">
+                  <option value="normal">正常</option>
+                  <option value="bold">加粗</option>
+                </select>
+              </label>
+              <label>
+                X
+                <input id="selected-x-input" type="number" step="1" />
+              </label>
+              <label>
+                Y
+                <input id="selected-y-input" type="number" step="1" />
+              </label>
+              <label>
+                宽
+                <input id="selected-width-input" type="number" step="1" />
+              </label>
+              <label>
+                高
+                <input id="selected-height-input" type="number" step="1" />
+              </label>
+              <button id="delete-annotation-btn" class="danger-btn" type="button">删除当前批注</button>
+            </div>
+          </section>
+
+          <section class="panel-block">
+            <div class="panel-header">
+              <h2>快捷键</h2>
+              <button id="reset-shortcuts-btn" type="button">恢复默认</button>
+            </div>
+            <div id="shortcut-list" class="shortcut-list"></div>
+            <p class="hint">点击某个快捷键按钮后，按下新的按键组合即可保存。删除默认支持 `Delete` 和 `Backspace`。</p>
+          </section>
+
+          <section class="panel-block">
+            <h2>最近批语</h2>
+            <div id="recent-comments" class="comment-list"></div>
+          </section>
+
+          <section class="panel-block">
+            <h2>常用批语</h2>
+            <div id="library-comments" class="comment-list"></div>
+          </section>
+
+          <section class="panel-block">
+            <h2>当前页批注</h2>
+            <div id="page-annotations" class="annotation-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="/static/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+name: ta_pdf_tool
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - fastapi>=0.110
+  - uvicorn>=0.29
+  - pydantic>=2.6
+  - pillow>=10
+  - requests>=2.31

@@ -1,0 +1,12 @@
+.conda/
+.conda-pkgs/
+__pycache__/
+*.py[cod]
+node_modules/
+data/
+graded/
+tmp_*/
+tmp*.png
+*.log
+.DS_Store
+Thumbs.db
