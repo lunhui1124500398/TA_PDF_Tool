@@ -98,6 +98,7 @@ const state = {
   viewport: null,
   recentComments: [],
   libraryComments: [],
+  backups: [],
   saveTimer: null,
   shortcuts: loadShortcuts(),
   capturingShortcutAction: null,
@@ -112,6 +113,11 @@ const els = {
   rootDirInput: document.querySelector("#root-dir-input"),
   pickRootDirBtn: document.querySelector("#pick-root-dir-btn"),
   sessionNameInput: document.querySelector("#session-name-input"),
+  importJsonInput: document.querySelector("#import-json-input"),
+  pickImportJsonBtn: document.querySelector("#pick-import-json-btn"),
+  importModeSelect: document.querySelector("#import-mode-select"),
+  importAnnotationsBtn: document.querySelector("#import-annotations-btn"),
+  backupList: document.querySelector("#backup-list"),
   statusStudent: document.querySelector("#status-student"),
   statusPage: document.querySelector("#status-page"),
   statusDone: document.querySelector("#status-done"),
@@ -699,8 +705,10 @@ async function loadSession() {
     state.summary = await api("/api/session");
     renderQueue();
     await refreshComments();
+    await refreshBackups();
     await loadStudentDocument();
   } catch {
+    await refreshBackups();
     setStatus("\u8fd8\u6ca1\u6709\u4f1a\u8bdd\u3002\u5148\u521b\u5efa\u4f1a\u8bdd\u540e\u5373\u53ef\u5f00\u59cb\u4f7f\u7528\u3002");
   }
 }
@@ -720,6 +728,7 @@ async function createSession(event) {
     state.selectedAnnotationId = null;
     renderQueue();
     await refreshComments();
+    await refreshBackups();
     await loadStudentDocument();
     setStatus("\u4f1a\u8bdd\u5df2\u521b\u5efa\uff0c\u73b0\u5728\u53ef\u4ee5\u5f00\u59cb\u6279\u6539\u3002");
   } catch (error) {
@@ -746,6 +755,107 @@ async function pickRootDirectory() {
   } finally {
     els.pickRootDirBtn.disabled = false;
     els.pickRootDirBtn.textContent = originalLabel;
+  }
+}
+
+async function refreshBackups() {
+  try {
+    state.backups = await api("/api/backups");
+    renderBackupList();
+  } catch {
+    state.backups = [];
+    renderBackupList();
+  }
+}
+
+function renderBackupList() {
+  if (!els.backupList) {
+    return;
+  }
+  const backups = state.backups.slice(0, 6);
+  if (!backups.length) {
+    els.backupList.innerHTML = '<div class="hint">\u6682\u65e0\u5907\u4efd</div>';
+    return;
+  }
+
+  els.backupList.innerHTML = backups
+    .map((backup, index) => {
+      const source = backup.annotations_path || backup.path;
+      return `
+        <div class="backup-item">
+          <button type="button" data-backup-index="${index}">
+            <strong>${escapeHtml(backup.reason || "\u5907\u4efd")}</strong>
+            <span>${escapeHtml(backup.name)}</span>
+            <small>${escapeHtml(source || "")}</small>
+          </button>
+        </div>
+      `;
+    })
+    .join("");
+
+  els.backupList.querySelectorAll("button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const backup = backups[Number(button.dataset.backupIndex)];
+      els.importJsonInput.value = backup.annotations_path || backup.path;
+      setStatus("\u5df2\u586b\u5165\u5907\u4efd\u8def\u5f84\uff0c\u53ef\u4ee5\u70b9\u51fb\u5bfc\u5165\u6279\u6ce8\u3002");
+    });
+  });
+}
+
+async function pickImportJson() {
+  const initialDir = els.importJsonInput.value.trim() || els.rootDirInput.value.trim();
+  const originalLabel = els.pickImportJsonBtn.textContent;
+  els.pickImportJsonBtn.disabled = true;
+  els.pickImportJsonBtn.textContent = "\u6253\u5f00\u4e2d...";
+  try {
+    const result = await api(`/api/system/pick-json?initial_dir=${encodeURIComponent(initialDir)}`);
+    if (!result.selected_path) {
+      setStatus("\u5df2\u53d6\u6d88\u9009\u62e9 JSON\u3002");
+      return;
+    }
+    els.importJsonInput.value = result.selected_path;
+    setStatus(`\u5df2\u9009\u62e9 JSON\uff1a${result.selected_path}`);
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    els.pickImportJsonBtn.disabled = false;
+    els.pickImportJsonBtn.textContent = originalLabel;
+  }
+}
+
+async function importAnnotations() {
+  const jsonPath = els.importJsonInput.value.trim();
+  if (!jsonPath) {
+    setStatus("\u8bf7\u5148\u9009\u62e9\u6216\u586b\u5199 annotations.json \u8def\u5f84\u3002");
+    return;
+  }
+
+  const originalLabel = els.importAnnotationsBtn.textContent;
+  els.importAnnotationsBtn.disabled = true;
+  els.importAnnotationsBtn.textContent = "\u5bfc\u5165\u4e2d...";
+  try {
+    if (state.currentStudent) {
+      await saveAnnotations();
+    }
+    const result = await api("/api/annotations/import", {
+      method: "POST",
+      body: JSON.stringify({
+        json_path: jsonPath,
+        mode: els.importModeSelect.value,
+      }),
+    });
+    state.summary = await api("/api/session");
+    renderQueue();
+    await refreshBackups();
+    await loadStudentDocument();
+    setStatus(
+      `\u5df2\u5bfc\u5165 ${result.imported_students} \u4f4d\u5b66\u751f\u7684 ${result.imported_annotations} \u6761\u6279\u6ce8\u3002`,
+    );
+  } catch (error) {
+    setStatus(error.message);
+  } finally {
+    els.importAnnotationsBtn.disabled = false;
+    els.importAnnotationsBtn.textContent = originalLabel;
   }
 }
 
@@ -1269,6 +1379,8 @@ function handleGlobalShortcuts(event) {
 function bindEvents() {
   els.sessionForm.addEventListener("submit", createSession);
   els.pickRootDirBtn.addEventListener("click", pickRootDirectory);
+  els.pickImportJsonBtn.addEventListener("click", pickImportJson);
+  els.importAnnotationsBtn.addEventListener("click", importAnnotations);
   els.prevStudentBtn.addEventListener("click", () => moveStudent(-1));
   els.nextStudentBtn.addEventListener("click", () => moveStudent(1));
   els.prevPageBtn.addEventListener("click", () => goToPage(state.currentPage - 1));

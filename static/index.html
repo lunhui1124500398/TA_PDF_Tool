@@ -175,6 +175,28 @@
           </section>
 
           <section class="panel-block">
+            <h2>备份 / 导入</h2>
+            <div class="field-grid">
+              <label>
+                JSON
+                <div class="input-with-action">
+                  <input id="import-json-input" type="text" placeholder="annotations.json 或备份目录" />
+                  <button id="pick-import-json-btn" type="button">选择 JSON</button>
+                </div>
+              </label>
+              <label>
+                模式
+                <select id="import-mode-select">
+                  <option value="merge">合并</option>
+                  <option value="replace">覆盖</option>
+                </select>
+              </label>
+              <button id="import-annotations-btn" type="button">导入批注</button>
+            </div>
+            <div id="backup-list" class="backup-list"></div>
+          </section>
+
+          <section class="panel-block">
             <div class="panel-header">
               <h2>快捷键</h2>
               <button id="reset-shortcuts-btn" type="button">恢复默认</button>

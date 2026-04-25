@@ -353,6 +353,33 @@ textarea {
   gap: 8px;
 }
 
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.backup-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.backup-item button {
+  width: 100%;
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.backup-item span,
+.backup-item small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

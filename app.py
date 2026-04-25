@@ -10,7 +10,10 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from mvp_store import (
+    AnnotationImportRequest,
+    AnnotationImportResult,
     AnnotationRecord,
+    BackupSummary,
     CommentUseRequest,
     MVPStore,
     SessionCreateRequest,
@@ -73,6 +76,54 @@ if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
     return selected.strip()
 
 
+def open_json_file_dialog(initial_dir: str | None = None) -> str:
+    if sys.platform == "win32":
+        script = """
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.OpenFileDialog
+$dialog.Title = "Select annotations JSON"
+$dialog.Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
+$dialog.CheckFileExists = $true
+if ($args.Count -gt 0 -and $args[0] -and (Test-Path $args[0])) {
+    $candidate = Get-Item $args[0]
+    if ($candidate.PSIsContainer) {
+        $dialog.InitialDirectory = $candidate.FullName
+    } else {
+        $dialog.InitialDirectory = $candidate.DirectoryName
+        $dialog.FileName = $candidate.Name
+    }
+}
+$result = $dialog.ShowDialog()
+if ($result -eq [System.Windows.Forms.DialogResult]::OK) {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    Write-Output $dialog.FileName
+}
+"""
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script, initial_dir or ""],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            check=False,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(result.stderr.strip() or "Failed to open JSON file picker.")
+        return result.stdout.strip()
+
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    selected = filedialog.askopenfilename(
+        initialdir=initial_dir or str(Path.home()),
+        filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+    )
+    root.destroy()
+    return selected.strip()
+
+
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -82,6 +133,15 @@ def health() -> dict[str, str]:
 def pick_folder(initial_dir: str | None = None) -> dict[str, str]:
     try:
         selected = open_folder_dialog(initial_dir)
+    except Exception as exc:  # pragma: no cover - native dialog failure is environment-specific
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"selected_path": selected}
+
+
+@app.get("/api/system/pick-json")
+def pick_json(initial_dir: str | None = None) -> dict[str, str]:
+    try:
+        selected = open_json_file_dialog(initial_dir)
     except Exception as exc:  # pragma: no cover - native dialog failure is environment-specific
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"selected_path": selected}
@@ -156,6 +216,21 @@ def replace_student_annotations(student_id: str, annotations: list[AnnotationRec
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/backups", response_model=list[BackupSummary])
+def list_backups() -> list[BackupSummary]:
+    return store.list_backups()
+
+
+@app.post("/api/annotations/import", response_model=AnnotationImportResult)
+def import_annotations(request: AnnotationImportRequest) -> AnnotationImportResult:
+    try:
+        return store.import_annotations(request)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.get("/api/comments/library")

@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import re
+import shutil
 from collections import defaultdict
 from datetime import datetime
 from functools import lru_cache
@@ -162,6 +163,29 @@ class ExportResult(BaseModel):
     exported_count: int = 0
 
 
+class BackupSummary(BaseModel):
+    name: str
+    path: str
+    created_at: str
+    reason: str
+    session_path: str | None = None
+    annotations_path: str | None = None
+
+
+class AnnotationImportRequest(BaseModel):
+    json_path: str
+    mode: Literal["merge", "replace"] = "merge"
+
+
+class AnnotationImportResult(BaseModel):
+    source_path: str
+    mode: Literal["merge", "replace"]
+    imported_students: int
+    skipped_students: int
+    imported_annotations: int
+    backup: BackupSummary | None = None
+
+
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -215,11 +239,13 @@ class MVPStore:
         self.comment_library_path = self.base_dir / "comment_library.md"
         self.comment_usage_path = self.base_dir / "comment_usage.json"
         self.export_dir = self.base_dir / "exports"
+        self.backup_dir = self.base_dir / "backups"
         self.ensure_base_layout()
 
     def ensure_base_layout(self) -> None:
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.export_dir.mkdir(parents=True, exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
         if not self.comment_library_path.exists():
             self.comment_library_path.write_text(DEFAULT_LIBRARY, encoding="utf-8")
         if not self.comment_usage_path.exists():
@@ -259,6 +285,7 @@ class MVPStore:
             students=students,
         )
         annotations = AnnotationStore(session_name=session_name)
+        self.backup_current_state("before-create-session")
         self.save_session(session)
         self.save_annotations(annotations)
         self.ensure_base_layout()
@@ -345,6 +372,9 @@ class MVPStore:
         session = self.load_session()
         self._get_student(session, student_id)
         store = self.load_annotations()
+        previous = store.students.get(student_id)
+        if previous and previous.annotations and not annotations:
+            self.backup_current_state(f"before-clear-{student_id}")
         normalized_annotations = [normalize_annotation_record(item) for item in annotations]
         store.students[student_id] = StudentAnnotationState(updated_at=now_iso(), annotations=normalized_annotations)
         self.save_annotations(store)
@@ -400,6 +430,115 @@ class MVPStore:
         usage.stats[comment_id] = stat
         self._write_json(self.comment_usage_path, usage.model_dump())
         return usage
+
+    def backup_current_state(self, reason: str) -> BackupSummary | None:
+        files_to_copy = [
+            ("session.json", self.session_path),
+            ("annotations.json", self.annotations_path),
+        ]
+        existing_files = [(name, path) for name, path in files_to_copy if path.exists()]
+        if not existing_files:
+            return None
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        backup_name = f"{timestamp}-{sanitize_filename(reason)}"
+        backup_path = self.backup_dir / backup_name
+        backup_path.mkdir(parents=True, exist_ok=False)
+
+        copied: dict[str, str] = {}
+        for filename, source_path in existing_files:
+            target_path = backup_path / filename
+            shutil.copy2(source_path, target_path)
+            copied[filename] = str(target_path)
+
+        summary = BackupSummary(
+            name=backup_name,
+            path=str(backup_path),
+            created_at=now_iso(),
+            reason=reason,
+            session_path=copied.get("session.json"),
+            annotations_path=copied.get("annotations.json"),
+        )
+        self._write_json(backup_path / "backup.json", summary.model_dump())
+        return summary
+
+    def list_backups(self) -> list[BackupSummary]:
+        self.ensure_base_layout()
+        backups: list[BackupSummary] = []
+        for backup_path in self.backup_dir.iterdir():
+            if not backup_path.is_dir():
+                continue
+            metadata_path = backup_path / "backup.json"
+            try:
+                if metadata_path.exists():
+                    backups.append(BackupSummary.model_validate_json(metadata_path.read_text(encoding="utf-8")))
+                    continue
+                backups.append(
+                    BackupSummary(
+                        name=backup_path.name,
+                        path=str(backup_path),
+                        created_at="",
+                        reason="legacy",
+                        session_path=str(backup_path / "session.json")
+                        if (backup_path / "session.json").exists()
+                        else None,
+                        annotations_path=str(backup_path / "annotations.json")
+                        if (backup_path / "annotations.json").exists()
+                        else None,
+                    )
+                )
+            except (OSError, ValueError):
+                continue
+        return sorted(backups, key=lambda item: item.name, reverse=True)
+
+    def import_annotations(self, request: AnnotationImportRequest) -> AnnotationImportResult:
+        session = self.load_session()
+        source_path = self._resolve_annotation_import_path(request.json_path)
+        imported_store = self._load_annotation_store(source_path)
+        normalized_imported_store, _ = normalize_annotation_store(imported_store)
+        backup = self.backup_current_state("before-import-annotations")
+
+        session_student_ids = {student.student_id for student in session.students}
+        target_store = (
+            AnnotationStore(session_name=session.session_name)
+            if request.mode == "replace"
+            else self.load_annotations()
+        )
+
+        imported_students = 0
+        skipped_students = 0
+        imported_annotations = 0
+        for student_id, state in normalized_imported_store.students.items():
+            if student_id not in session_student_ids:
+                skipped_students += 1
+                continue
+
+            normalized_state = StudentAnnotationState(
+                updated_at=state.updated_at or now_iso(),
+                annotations=[normalize_annotation_record(item) for item in state.annotations],
+            )
+            target_store.students[student_id] = normalized_state
+            imported_students += 1
+            imported_annotations += len(normalized_state.annotations)
+
+            student = self._get_student(session, student_id)
+            score_summary = self._derive_score_summary(normalized_state.annotations)
+            if score_summary is not None:
+                student.score_summary = score_summary
+            if normalized_state.annotations and student.status == "not_started":
+                student.status = "in_progress"
+
+        target_store.session_name = session.session_name
+        self.save_annotations(target_store)
+        self.save_session(session)
+        return AnnotationImportResult(
+            source_path=str(source_path),
+            mode=request.mode,
+            imported_students=imported_students,
+            skipped_students=skipped_students,
+            imported_annotations=imported_annotations,
+            backup=backup,
+        )
 
     def export_current(self, student_id: str) -> ExportResult:
         session = self.load_session()
@@ -492,6 +631,33 @@ class MVPStore:
     def _load_comment_usage(self) -> CommentUsageStore:
         self.ensure_base_layout()
         return CommentUsageStore.model_validate_json(self.comment_usage_path.read_text(encoding="utf-8"))
+
+    def _resolve_annotation_import_path(self, raw_path: str) -> Path:
+        if not raw_path.strip():
+            raise ValueError("Import JSON path is empty.")
+
+        source_path = Path(raw_path).expanduser().resolve()
+        if source_path.is_dir():
+            source_path = source_path / "annotations.json"
+        elif source_path.name == "session.json" and (source_path.parent / "annotations.json").exists():
+            source_path = source_path.parent / "annotations.json"
+        elif source_path.name == "backup.json" and (source_path.parent / "annotations.json").exists():
+            source_path = source_path.parent / "annotations.json"
+
+        if not source_path.is_file():
+            raise FileNotFoundError(f"Annotation JSON not found: {source_path}")
+        return source_path
+
+    def _load_annotation_store(self, source_path: Path) -> AnnotationStore:
+        try:
+            payload = json.loads(source_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON file: {source_path}") from exc
+
+        if not isinstance(payload, dict) or "students" not in payload:
+            raise ValueError("Import file must be an annotations.json file or a backup folder containing one.")
+
+        return AnnotationStore.model_validate(payload)
 
     def _derive_score_summary(self, annotations: list[AnnotationRecord]) -> str | None:
         scores = [item for item in annotations if item.type == "score" and item.text.strip()]
